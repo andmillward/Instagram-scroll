@@ -114,20 +114,25 @@ compose file, so it survives rebuilds/updates.
 
 - **Play/pause**: tap the button, or `space`
 - **Seek**: drag the progress bar, or `←`/`→` for ±10s
-- **Prev/next reel**: buttons, or `↑`/`↓`
+- **Prev/next**: buttons, or `↑`/`↓` — this works the same whether you're on
+  a reel or a message pane, so you can always back up past one
 - **Speed**: cycles 1x → 1.25x → 1.5x → 2x, or `s`
 - **Fullscreen**: useful before casting, or `f`
 - **Auto: On/Off**: turn off if you want to stay on one reel (e.g. to show
   someone) without it jumping away when it ends
 - Reels that fail to fetch (deleted, private, blocked) are skipped
-  automatically after a few seconds, with a **Retry** button in case it was
-  a transient block
+  automatically after a few seconds. The error message includes an **Open in
+  Instagram ↗** link straight to the original post so you can try opening it
+  yourself, plus a **Retry** button in case it was just a transient block
 - **Jump to date** (📅 button): pulls up a date picker and jumps straight to
   the nearest reel or message on/after that date — handy if your saved
   position ever needs a manual correction
-- Message/link cards appear as their own full-screen pane between reels
-  (grouped so you're not tapping through one screen per text); tap
-  **Continue** or `↓` to move past them
+- Message/link cards appear as their own pane between reels (grouped so
+  you're not tapping through one screen per text), and behave like a video
+  clip: a progress bar counts up over ~10-30 seconds (longer for bigger
+  groups of messages), with the same play/pause, ±10s, speed, and
+  auto-advance-at-the-end controls as a reel. Threads links are embedded
+  inline (via Meta's official embed widget) instead of just a plain link.
 
 ### Casting to the TV
 
