@@ -54,13 +54,16 @@ def init_db():
                 thumbnail_path TEXT,
                 duration REAL,
                 attempts INTEGER NOT NULL DEFAULT 0,
-                error TEXT
+                error TEXT,
+                caption TEXT
             )
             """
         )
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_reels_order ON reels (sent_at, id)"
         )
+        if "caption" not in _column_names(cur, "reels"):
+            cur.execute("ALTER TABLE reels ADD COLUMN caption TEXT")
 
         cur.execute(
             """
@@ -110,7 +113,7 @@ def init_db():
 # --- Reels -----------------------------------------------------------------
 
 def import_reels(items) -> dict:
-    """items: iterable of dicts with shortcode, url, sender, sent_at_ms"""
+    """items: iterable of dicts with shortcode, url, sender, sent_at_ms, caption"""
     new = 0
     duplicate = 0
     now = int(time.time() * 1000)
@@ -119,8 +122,8 @@ def import_reels(items) -> dict:
             try:
                 cur.execute(
                     """
-                    INSERT INTO reels (shortcode, url, sender, sent_at, added_at, status)
-                    VALUES (?, ?, ?, ?, ?, 'pending')
+                    INSERT INTO reels (shortcode, url, sender, sent_at, added_at, status, caption)
+                    VALUES (?, ?, ?, ?, ?, 'pending', ?)
                     """,
                     (
                         item["shortcode"],
@@ -128,6 +131,7 @@ def import_reels(items) -> dict:
                         item.get("sender"),
                         item.get("sent_at_ms"),
                         now,
+                        item.get("caption"),
                     ),
                 )
                 new += 1
@@ -140,7 +144,7 @@ def list_reels() -> list[dict]:
     with _cursor() as cur:
         cur.execute(
             """
-            SELECT id, shortcode, url, sender, sent_at, status, duration, error
+            SELECT id, shortcode, url, sender, sent_at, status, duration, error, caption
             FROM reels
             ORDER BY (sent_at IS NULL), sent_at ASC, id ASC
             """

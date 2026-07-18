@@ -76,6 +76,16 @@ def _extract_urls(text: str) -> list[str]:
     return out
 
 
+def _caption_text(content: str) -> str | None:
+    """Returns the sender's own caption typed alongside a shared reel, or
+    None if there's nothing beyond the link itself (e.g. content is just the
+    share URL Instagram already filled in)."""
+    if not content or not content.strip():
+        return None
+    without_urls = URL_RE.sub("", unquote(content)).strip()
+    return content.strip() if without_urls else None
+
+
 def _note_key(sender: str, sent_at_ms, text: str, links: list[str]) -> str:
     raw = f"{sender}|{sent_at_ms}|{text}|{'|'.join(links)}"
     return hashlib.sha1(raw.encode("utf-8", "ignore")).hexdigest()
@@ -104,8 +114,11 @@ def _parse_message_json(data: dict) -> dict:
         shortcodes.update(_extract_shortcodes(content))
 
         if shortcodes:
-            # Represented as reel(s); intentionally not also split into a
-            # note, to avoid showing the same share twice.
+            # Represented as reel(s); any caption typed alongside the share
+            # travels with the reel itself rather than becoming a separate
+            # note (so it doesn't get silently dropped or shown far away
+            # from the video it's actually about).
+            caption = _caption_text(content)
             for shortcode in shortcodes:
                 reels.append(
                     {
@@ -113,6 +126,7 @@ def _parse_message_json(data: dict) -> dict:
                         "url": _canonical(shortcode),
                         "sender": sender,
                         "sent_at_ms": sent_at_ms,
+                        "caption": caption,
                     }
                 )
             continue
@@ -153,6 +167,7 @@ def _parse_html_fallback(html: str) -> dict:
                 "url": _canonical(shortcode),
                 "sender": None,
                 "sent_at_ms": None,
+                "caption": None,
             }
         )
     return {"reels": reels, "notes": []}
@@ -214,8 +229,14 @@ def dedupe_reels(items: list[dict]) -> list[dict]:
         existing = by_shortcode.get(item["shortcode"])
         if existing is None:
             by_shortcode[item["shortcode"]] = item
-        elif existing.get("sent_at_ms") is None and item.get("sent_at_ms") is not None:
-            by_shortcode[item["shortcode"]] = item
+            continue
+        merged = dict(existing)
+        if merged.get("sent_at_ms") is None and item.get("sent_at_ms") is not None:
+            merged["sent_at_ms"] = item["sent_at_ms"]
+            merged["sender"] = item.get("sender")
+        if not merged.get("caption") and item.get("caption"):
+            merged["caption"] = item["caption"]
+        by_shortcode[item["shortcode"]] = merged
     return list(by_shortcode.values())
 
 

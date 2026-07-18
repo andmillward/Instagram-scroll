@@ -23,9 +23,10 @@ ends. Built to be cast to a TV and driven from your phone.
   continuously to a small SQLite file, so reopening the app - on your phone,
   on the TV, wherever - jumps right back to where you stopped.
 - **Messages**: text captions and any other links she sends (Threads posts,
-  articles, etc.) aren't dropped - they show up as an interstitial "cards"
-  pane between the reels they were sent around, with clickable links, instead
-  of being scattered one-per-message.
+  articles, etc.) aren't dropped. A caption typed *alongside* a reel share
+  (in the same message) is shown right on that reel; anything else shows up
+  as an interstitial "cards" pane between the reels it was sent around, with
+  clickable links, instead of being scattered one-per-message.
 
 ### Why not fully automatic, no-export ingestion?
 

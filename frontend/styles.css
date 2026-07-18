@@ -59,10 +59,26 @@ html, body {
   flex-direction: column;
   font-size: 13px;
   opacity: .9;
+}
+
+.metaLine {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+#captionText {
+  margin-top: 3px;
+  font-size: 13px;
+  font-weight: 500;
+  opacity: .95;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+#captionText:empty { display: none; }
 
 #counter {
   font-size: 13px;

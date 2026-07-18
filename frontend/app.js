@@ -13,6 +13,7 @@
   const jumpBtn = document.getElementById("jumpBtn");
   const senderName = document.getElementById("senderName");
   const sentDate = document.getElementById("sentDate");
+  const captionText = document.getElementById("captionText");
   const counter = document.getElementById("counter");
   const statusOverlay = document.getElementById("statusOverlay");
   const statusText = document.getElementById("statusText");
@@ -83,10 +84,12 @@
     if (item.kind === "reel") {
       senderName.textContent = item.sender ? `From ${item.sender}` : "";
       sentDate.textContent = fmtDate(item.sent_at);
+      captionText.textContent = item.caption || "";
     } else {
       const senders = [...new Set(item.messages.map((m) => m.sender).filter(Boolean))];
       senderName.textContent = senders.length ? `From ${senders.join(", ")}` : "Messages";
       sentDate.textContent = fmtDate(item.sent_at);
+      captionText.textContent = "";
     }
     counter.textContent = `${index + 1} / ${timeline.length}`;
   }
