@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Reels</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="stage">
+    <video id="player" playsinline webkit-playsinline></video>
+
+    <div id="statusOverlay" class="overlay center hidden">
+      <div id="statusText">Loading…</div>
+      <button id="retryBtn" class="hidden">Retry</button>
+    </div>
+
+    <div id="topBar" class="overlay top">
+      <div id="meta">
+        <span id="senderName"></span>
+        <span id="sentDate"></span>
+      </div>
+      <div id="counter"></div>
+      <button id="importBtn" title="Import export">＋</button>
+    </div>
+
+    <div id="bottomBar" class="overlay bottom">
+      <input id="seek" type="range" min="0" max="1000" value="0" step="1" />
+      <div id="controls">
+        <button id="prevBtn" title="Previous (↑)">⏮</button>
+        <button id="back10Btn" title="Back 10s (←)">−10s</button>
+        <button id="playBtn" title="Play/Pause (space)">▶</button>
+        <button id="fwd10Btn" title="Forward 10s (→)">+10s</button>
+        <button id="nextBtn" title="Next (↓)">⏭</button>
+        <button id="speedBtn" title="Playback speed (s)">1x</button>
+        <button id="autoBtn" title="Toggle auto-advance">Auto: On</button>
+        <button id="fsBtn" title="Fullscreen (f)">⛶</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="importModal" class="modal hidden">
+    <div class="modal-card">
+      <h2>Import Meta export</h2>
+      <p>
+        Drop your "Download your information" export here (the .zip, or the
+        individual <code>message_1.json</code> files). JSON format is
+        strongly recommended over HTML for correct dates/ordering.
+      </p>
+      <div id="dropZone">Drop files here, or click to choose</div>
+      <input id="fileInput" type="file" multiple accept=".zip,.json,.html,.htm" hidden />
+      <div id="importResult"></div>
+      <button id="closeImportBtn">Close</button>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

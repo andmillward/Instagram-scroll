@@ -1,0 +1,17 @@
+services:
+  instagram-scroll:
+    build: .
+    container_name: instagram-scroll
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+      # Optional: mount your own cookies.txt (exported from a logged-in
+      # browser) if you need to fetch reels from private accounts.
+      # - ./cookies.txt:/data/cookies.txt:ro
+    environment:
+      - PREFETCH_WINDOW=6
+      - FETCH_DELAY_SECONDS=3
+      - CACHE_KEEP_BEHIND=30
+      # - COOKIES_FILE=/data/cookies.txt
