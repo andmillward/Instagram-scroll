@@ -43,13 +43,42 @@ stays, but importing it is a single drag-and-drop.
 
 ## Quick start
 
+### Option A: prebuilt image (no build step on the server)
+
+Every push to `main` builds and publishes an image via GitHub Actions to
+GHCR — the server just pulls and runs it:
+
+```bash
+docker run -d \
+  --name instagram-scroll \
+  --restart unless-stopped \
+  -p 8000:8000 \
+  -v "$(pwd)/data:/data" \
+  ghcr.io/andmillward/instagram-scroll:latest
+```
+
+The GitHub Actions workflow (`.github/workflows/docker-publish.yml`) needs
+no secrets — it uses the repo's built-in `GITHUB_TOKEN`. The first time it
+runs, the resulting package on GHCR defaults to **private**, so on the
+server you'll need to authenticate once before `docker run` can pull it:
+
+```bash
+echo <your-github-PAT> | docker login ghcr.io -u andmillward --password-stdin
+```
+
+(a classic PAT with the `read:packages` scope is enough), or make the
+package public from the repo's **Packages** tab on GitHub so no login is
+needed at all. To update later: `docker pull ghcr.io/andmillward/instagram-scroll:latest && docker stop instagram-scroll && docker rm instagram-scroll` then re-run the `docker run` command above.
+
+### Option B: build locally on the server
+
 ```bash
 git clone <this repo> instagram-scroll
 cd instagram-scroll
 docker compose up -d --build
 ```
 
-The app is now on `http://<server-ip>:8000`. Point your reverse proxy at
+Both options are equivalent otherwise — same image, same volumes. The app is now on `http://<server-ip>:8000`. Point your reverse proxy at
 that port (e.g. `reverse_proxy instagram-scroll:8000` in a Caddyfile, or an
 nginx `proxy_pass http://127.0.0.1:8000;`), and put it behind a login if
 your proxy supports it (Caddy `basicauth`, an nginx `auth_basic`, or your
