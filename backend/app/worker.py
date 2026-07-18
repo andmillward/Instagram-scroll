@@ -1,6 +1,10 @@
 """Background loop that keeps videos near the current playback position
 pre-fetched, works through the rest of the backlog at a polite pace, and
-evicts cached files that have fallen far behind the current position."""
+evicts cached files that have fallen far behind the current position.
+
+"Position" is tracked over the merged reel+notes timeline (see db.py's
+build_timeline), but only reel entries need fetching/eviction - notes
+entries are skipped when counting how far ahead/behind to look."""
 import asyncio
 import logging
 
@@ -10,43 +14,59 @@ from .fetcher import FetchError, delete_cached_files, fetch_reel
 log = logging.getLogger("worker")
 
 
-def _pick_next_pending() -> dict | None:
-    ids = db.ordered_ids()
+def _current_index(timeline: list[dict]) -> int:
     progress = db.get_progress()
-    current_id = progress.get("current_reel_id")
-    current_index = ids.index(current_id) if current_id in ids else 0
+    key = progress.get("current_key")
+    if key:
+        for i, item in enumerate(timeline):
+            if item["key"] == key:
+                return i
+    return 0
 
-    window = ids[current_index : current_index + config.PREFETCH_WINDOW]
-    for reel_id in window:
-        reel = db.get_reel(reel_id)
-        if reel and reel["status"] == "pending":
-            return reel
 
-    # Nothing urgent pending - work through the rest of the backlog,
-    # oldest-first, starting from the current position and wrapping around.
-    rest = ids[current_index + config.PREFETCH_WINDOW :] + ids[:current_index]
-    for reel_id in rest:
-        reel = db.get_reel(reel_id)
-        if reel and reel["status"] == "pending":
-            return reel
+def _pick_next_pending() -> dict | None:
+    timeline = db.build_timeline()
+    if not timeline:
+        return None
+    idx = _current_index(timeline)
+
+    # Priority: the next PREFETCH_WINDOW reel entries from the current
+    # position onward.
+    seen = 0
+    for item in timeline[idx:]:
+        if item["kind"] != "reel":
+            continue
+        seen += 1
+        if item["status"] == "pending":
+            return db.get_reel(item["id"])
+        if seen >= config.PREFETCH_WINDOW:
+            break
+
+    # Otherwise, work through the rest of the backlog (forward, then wrap
+    # around to the start) at a low priority.
+    for item in timeline[idx:] + timeline[:idx]:
+        if item["kind"] == "reel" and item["status"] == "pending":
+            return db.get_reel(item["id"])
 
     return None
 
 
 def _cleanup_cache():
-    ids = db.ordered_ids()
-    progress = db.get_progress()
-    current_id = progress.get("current_reel_id")
-    current_index = ids.index(current_id) if current_id in ids else 0
-
-    stale_cutoff = current_index - config.CACHE_KEEP_BEHIND
-    if stale_cutoff <= 0:
+    timeline = db.build_timeline()
+    if not timeline:
         return
-    for reel_id in ids[:stale_cutoff]:
-        reel = db.get_reel(reel_id)
-        if reel and reel["status"] == "ready" and reel["local_path"]:
-            delete_cached_files(reel["shortcode"])
-            db.archive_reel(reel_id)
+    idx = _current_index(timeline)
+
+    seen = 0
+    for item in reversed(timeline[:idx]):
+        if item["kind"] != "reel":
+            continue
+        seen += 1
+        if seen <= config.CACHE_KEEP_BEHIND:
+            continue
+        if item["status"] == "ready" and item.get("local_path"):
+            delete_cached_files(item["shortcode"])
+            db.archive_reel(item["id"])
 
 
 async def _fetch_one(reel: dict):

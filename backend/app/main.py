@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import config, db
-from .importer import dedupe, parse_export
+from .importer import dedupe_notes, dedupe_reels, parse_export
 from .streaming import range_file_response
 from .worker import run_worker
 
@@ -30,20 +30,36 @@ app = FastAPI(lifespan=lifespan)
 
 
 class ProgressUpdate(BaseModel):
-    reel_id: int
+    key: str
     position_seconds: float = 0
 
 
 @app.post("/api/import")
 async def import_export(files: list[UploadFile]):
-    all_items = []
+    all_reels = []
+    all_notes = []
     for f in files:
         content = await f.read()
-        all_items.extend(parse_export(f.filename, content))
+        parsed = parse_export(f.filename, content)
+        all_reels.extend(parsed["reels"])
+        all_notes.extend(parsed["notes"])
 
-    items = dedupe(all_items)
-    result = db.import_reels(items)
-    return {"found": len(items), **result}
+    reels = dedupe_reels(all_reels)
+    notes = dedupe_notes(all_notes)
+    reel_result = db.import_reels(reels)
+    note_result = db.import_notes(notes)
+    return {
+        "found": len(reels) + len(notes),
+        "new": reel_result["new"] + note_result["new"],
+        "duplicate": reel_result["duplicate"] + note_result["duplicate"],
+        "reels_found": len(reels),
+        "notes_found": len(notes),
+    }
+
+
+@app.get("/api/timeline")
+async def get_timeline():
+    return db.build_timeline()
 
 
 @app.get("/api/reels")
@@ -66,10 +82,18 @@ async def get_progress():
 
 @app.post("/api/progress")
 async def post_progress(update: ProgressUpdate):
-    reel = db.get_reel(update.reel_id)
-    if reel is None:
-        raise HTTPException(404, "no such reel")
-    db.set_progress(update.reel_id, update.position_seconds)
+    try:
+        if update.key.startswith("reel:"):
+            found = db.get_reel(int(update.key[len("reel:"):])) is not None
+        elif update.key.startswith("notes:"):
+            found = db.get_note(int(update.key[len("notes:"):])) is not None
+        else:
+            raise HTTPException(400, "invalid key")
+    except ValueError:
+        raise HTTPException(400, "invalid key")
+    if not found:
+        raise HTTPException(404, "no such item")
+    db.set_progress(update.key, update.position_seconds)
     return {"ok": True}
 
 

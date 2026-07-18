@@ -10,13 +10,20 @@
   const autoBtn = document.getElementById("autoBtn");
   const fsBtn = document.getElementById("fsBtn");
   const importBtn = document.getElementById("importBtn");
+  const jumpBtn = document.getElementById("jumpBtn");
   const senderName = document.getElementById("senderName");
   const sentDate = document.getElementById("sentDate");
+  const captionText = document.getElementById("captionText");
   const counter = document.getElementById("counter");
   const statusOverlay = document.getElementById("statusOverlay");
   const statusText = document.getElementById("statusText");
   const retryBtn = document.getElementById("retryBtn");
   const stage = document.getElementById("stage");
+  const bottomBar = document.getElementById("bottomBar");
+
+  const notesPane = document.getElementById("notesPane");
+  const notesCards = document.getElementById("notesCards");
+  const continueBtn = document.getElementById("continueBtn");
 
   const importModal = document.getElementById("importModal");
   const dropZone = document.getElementById("dropZone");
@@ -24,9 +31,15 @@
   const importResult = document.getElementById("importResult");
   const closeImportBtn = document.getElementById("closeImportBtn");
 
+  const jumpModal = document.getElementById("jumpModal");
+  const jumpDate = document.getElementById("jumpDate");
+  const jumpResult = document.getElementById("jumpResult");
+  const jumpGoBtn = document.getElementById("jumpGoBtn");
+  const jumpCancelBtn = document.getElementById("jumpCancelBtn");
+
   const SPEEDS = [1, 1.25, 1.5, 2];
 
-  let reels = [];
+  let timeline = [];
   let index = 0;
   let speedIdx = 0;
   let autoAdvance = true;
@@ -41,6 +54,14 @@
     return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   }
 
+  function fmtDateTime(ms) {
+    if (!ms) return "";
+    const d = new Date(ms);
+    return d.toLocaleString(undefined, {
+      year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+    });
+  }
+
   async function api(path, opts) {
     const res = await fetch(path, opts);
     if (!res.ok) throw new Error(`${path}: ${res.status}`);
@@ -49,7 +70,7 @@
   }
 
   function current() {
-    return reels[index];
+    return timeline[index];
   }
 
   function clearTimers() {
@@ -58,11 +79,19 @@
   }
 
   function updateMeta() {
-    const reel = current();
-    if (!reel) return;
-    senderName.textContent = reel.sender ? `From ${reel.sender}` : "";
-    sentDate.textContent = fmtDate(reel.sent_at);
-    counter.textContent = `${index + 1} / ${reels.length}`;
+    const item = current();
+    if (!item) return;
+    if (item.kind === "reel") {
+      senderName.textContent = item.sender ? `From ${item.sender}` : "";
+      sentDate.textContent = fmtDate(item.sent_at);
+      captionText.textContent = item.caption || "";
+    } else {
+      const senders = [...new Set(item.messages.map((m) => m.sender).filter(Boolean))];
+      senderName.textContent = senders.length ? `From ${senders.join(", ")}` : "Messages";
+      sentDate.textContent = fmtDate(item.sent_at);
+      captionText.textContent = "";
+    }
+    counter.textContent = `${index + 1} / ${timeline.length}`;
   }
 
   function showStatus(text, showRetry) {
@@ -75,20 +104,80 @@
     statusOverlay.classList.add("hidden");
   }
 
+  function setVideoControlsVisible(visible) {
+    bottomBar.classList.toggle("hidden", !visible);
+  }
+
+  function renderNotes(item) {
+    notesCards.innerHTML = "";
+    for (const msg of item.messages) {
+      const card = document.createElement("div");
+      card.className = "note-card";
+
+      const meta = document.createElement("div");
+      meta.className = "note-meta";
+      meta.textContent = [msg.sender, fmtDateTime(msg.sent_at)].filter(Boolean).join(" · ");
+      card.appendChild(meta);
+
+      if (msg.text) {
+        const text = document.createElement("div");
+        text.className = "note-text";
+        text.textContent = msg.text;
+        card.appendChild(text);
+      }
+
+      if (msg.links && msg.links.length) {
+        const linksWrap = document.createElement("div");
+        linksWrap.className = "note-links";
+        for (const url of msg.links) {
+          const a = document.createElement("a");
+          a.className = "note-link";
+          a.href = url;
+          a.target = "_blank";
+          a.rel = "noopener";
+          let label = url;
+          try { label = new URL(url).hostname.replace(/^www\./, "") + " ↗"; } catch (e) {}
+          a.textContent = label;
+          linksWrap.appendChild(a);
+        }
+        card.appendChild(linksWrap);
+      }
+
+      notesCards.appendChild(card);
+    }
+  }
+
   function loadCurrent(seekTo) {
     clearTimers();
-    const reel = current();
+    const item = current();
     updateMeta();
 
-    if (!reel) {
-      showStatus("You're all caught up. Import more reels with the + button.", false);
+    if (!item) {
+      player.pause();
       player.removeAttribute("src");
+      notesPane.classList.add("hidden");
+      setVideoControlsVisible(true);
+      showStatus("You're all caught up. Import more with the + button.", false);
       return;
     }
 
-    if (reel.status === "ready") {
+    if (item.kind === "notes") {
+      player.pause();
+      player.removeAttribute("src");
       hideStatus();
-      player.src = `/api/video/${reel.shortcode}`;
+      setVideoControlsVisible(false);
+      renderNotes(item);
+      notesPane.classList.remove("hidden");
+      saveProgress(true);
+      return;
+    }
+
+    notesPane.classList.add("hidden");
+    setVideoControlsVisible(true);
+
+    if (item.status === "ready") {
+      hideStatus();
+      player.src = `/api/video/${item.shortcode}`;
       player.playbackRate = SPEEDS[speedIdx];
       const onMeta = () => {
         player.currentTime = seekTo || 0;
@@ -99,8 +188,8 @@
       return;
     }
 
-    if (reel.status === "failed") {
-      showStatus(`Skipped: this reel couldn't be fetched (${reel.error || "unavailable"}).`, true);
+    if (item.status === "failed") {
+      showStatus(`Skipped: this reel couldn't be fetched (${item.error || "unavailable"}).`, true);
       if (autoAdvance) {
         autoSkipTimer = setTimeout(() => next(), 3000);
       }
@@ -109,15 +198,16 @@
 
     // pending / fetching
     showStatus("Fetching video…", false);
-    pollStatus(reel.id);
+    pollStatus(item.id);
   }
 
   async function pollStatus(reelId) {
     try {
       const updated = await api(`/api/reels/${reelId}`);
-      const i = reels.findIndex((r) => r.id === reelId);
-      if (i !== -1) reels[i] = updated;
-      if (current() && current().id === reelId) {
+      const i = timeline.findIndex((t) => t.kind === "reel" && t.id === reelId);
+      if (i !== -1) timeline[i] = { ...timeline[i], ...updated };
+      const item = current();
+      if (item && item.kind === "reel" && item.id === reelId) {
         if (updated.status === "ready" || updated.status === "failed") {
           loadCurrent(0);
           return;
@@ -130,12 +220,13 @@
   }
 
   function saveProgress(immediate) {
-    const reel = current();
-    if (!reel) return;
+    const item = current();
+    if (!item) return;
     const now = Date.now();
     if (!immediate && now - lastSavedAt < 4000) return;
     lastSavedAt = now;
-    const body = JSON.stringify({ reel_id: reel.id, position_seconds: player.currentTime || 0 });
+    const position = item.kind === "reel" ? (player.currentTime || 0) : 0;
+    const body = JSON.stringify({ key: item.key, position_seconds: position });
     if (immediate && navigator.sendBeacon) {
       navigator.sendBeacon("/api/progress", new Blob([body], { type: "application/json" }));
     } else {
@@ -144,7 +235,7 @@
   }
 
   function goTo(newIndex, seekTo) {
-    if (newIndex < 0 || newIndex >= reels.length) return;
+    if (newIndex < 0 || newIndex >= timeline.length) return;
     saveProgress(true);
     index = newIndex;
     loadCurrent(seekTo || 0);
@@ -154,6 +245,7 @@
   function prev() { goTo(index - 1, 0); }
 
   function togglePlay() {
+    if (current() && current().kind !== "reel") return;
     if (player.paused) player.play().catch(() => {});
     else player.pause();
   }
@@ -167,7 +259,7 @@
   function toggleAuto() {
     autoAdvance = !autoAdvance;
     autoBtn.textContent = `Auto: ${autoAdvance ? "On" : "Off"}`;
-    if (autoAdvance && current() && current().status === "failed" && !autoSkipTimer) {
+    if (autoAdvance && current() && current().kind === "reel" && current().status === "failed" && !autoSkipTimer) {
       autoSkipTimer = setTimeout(() => next(), 1500);
     }
   }
@@ -190,7 +282,7 @@
     saveProgress(false);
   });
   player.addEventListener("error", () => {
-    showStatus("Playback error on this file.", true);
+    if (current() && current().kind === "reel") showStatus("Playback error on this file.", true);
   });
 
   seek.addEventListener("input", () => {
@@ -205,26 +297,27 @@
   playBtn.addEventListener("click", togglePlay);
   nextBtn.addEventListener("click", next);
   prevBtn.addEventListener("click", prev);
+  continueBtn.addEventListener("click", next);
   back10Btn.addEventListener("click", () => { player.currentTime = Math.max(0, player.currentTime - 10); });
   fwd10Btn.addEventListener("click", () => { player.currentTime = (player.currentTime || 0) + 10; });
   speedBtn.addEventListener("click", cycleSpeed);
   autoBtn.addEventListener("click", toggleAuto);
   fsBtn.addEventListener("click", toggleFullscreen);
   retryBtn.addEventListener("click", async () => {
-    const reel = current();
-    if (!reel) return;
+    const item = current();
+    if (!item || item.kind !== "reel") return;
     if (autoSkipTimer) { clearTimeout(autoSkipTimer); autoSkipTimer = null; }
-    await api(`/api/reels/${reel.id}/retry`, { method: "POST" });
-    reel.status = "pending";
+    await api(`/api/reels/${item.id}/retry`, { method: "POST" });
+    item.status = "pending";
     loadCurrent(0);
   });
 
   document.addEventListener("keydown", (e) => {
-    if (!importModal.classList.contains("hidden")) return;
+    if (!importModal.classList.contains("hidden") || !jumpModal.classList.contains("hidden")) return;
     switch (e.key) {
       case " ": e.preventDefault(); togglePlay(); break;
-      case "ArrowLeft": player.currentTime = Math.max(0, player.currentTime - 10); break;
-      case "ArrowRight": player.currentTime = (player.currentTime || 0) + 10; break;
+      case "ArrowLeft": if (current() && current().kind === "reel") player.currentTime = Math.max(0, player.currentTime - 10); break;
+      case "ArrowRight": if (current() && current().kind === "reel") player.currentTime = (player.currentTime || 0) + 10; break;
       case "ArrowUp": prev(); break;
       case "ArrowDown": next(); break;
       case "f": case "F": toggleFullscreen(); break;
@@ -260,49 +353,88 @@
     importResult.textContent = "Importing…";
     try {
       const result = await api("/api/import", { method: "POST", body: form });
-      importResult.textContent = `Found ${result.found} reel link(s): ${result.new} new, ${result.duplicate} already known.`;
-      await refreshReels();
+      importResult.textContent =
+        `Found ${result.reels_found} reel link(s) and ${result.notes_found} message(s): ` +
+        `${result.new} new, ${result.duplicate} already known.`;
+      await refreshTimeline();
     } catch (e) {
       importResult.textContent = "Import failed. Check the file format and try again.";
     }
   }
 
-  async function refreshReels() {
-    const currentId = current() ? current().id : null;
-    reels = await api("/api/reels");
-    if (currentId != null) {
-      const i = reels.findIndex((r) => r.id === currentId);
+  async function refreshTimeline() {
+    const currentKey = current() ? current().key : null;
+    timeline = await api("/api/timeline");
+    if (currentKey != null) {
+      const i = timeline.findIndex((t) => t.key === currentKey);
       if (i !== -1) index = i;
     }
     updateMeta();
-    if (current() && current().status !== "ready" && !statusPollTimer) {
+    const item = current();
+    if (item && item.kind === "reel" && item.status !== "ready" && !statusPollTimer) {
+      loadCurrent(0);
+    } else if (item && item.kind === "notes" && notesPane.classList.contains("hidden")) {
       loadCurrent(0);
     }
   }
 
+  // --- Jump to date ---
+  function openJump() {
+    jumpResult.textContent = "";
+    const item = current();
+    if (item && item.sent_at) {
+      jumpDate.value = new Date(item.sent_at).toISOString().slice(0, 10);
+    }
+    jumpModal.classList.remove("hidden");
+  }
+  function closeJump() { jumpModal.classList.add("hidden"); }
+
+  jumpBtn.addEventListener("click", openJump);
+  jumpCancelBtn.addEventListener("click", closeJump);
+  jumpGoBtn.addEventListener("click", () => {
+    if (!jumpDate.value) return;
+    const target = new Date(jumpDate.value + "T00:00:00").getTime();
+    let found = timeline.findIndex((t) => t.sent_at != null && t.sent_at >= target);
+    if (found === -1) {
+      // date is after everything we have - go to the last item instead
+      found = timeline.length - 1;
+    }
+    if (found === -1) {
+      jumpResult.textContent = "No dated items to jump to yet.";
+      return;
+    }
+    goTo(found, 0);
+    closeJump();
+  });
+
+  // --- Init ---
   async function init() {
     autoBtn.textContent = `Auto: ${autoAdvance ? "On" : "Off"}`;
     speedBtn.textContent = `${SPEEDS[speedIdx]}x`;
 
-    const [reelList, progress] = await Promise.all([
-      api("/api/reels"),
+    const [tl, progress] = await Promise.all([
+      api("/api/timeline"),
       api("/api/progress"),
     ]);
-    reels = reelList;
+    timeline = tl;
 
-    if (!reels.length) {
+    if (!timeline.length) {
       openImport();
       loadCurrent(0);
       return;
     }
 
     let startIndex = 0;
-    if (progress && progress.current_reel_id != null) {
-      const i = reels.findIndex((r) => r.id === progress.current_reel_id);
-      if (i !== -1) startIndex = i;
+    let startSeek = 0;
+    if (progress && progress.current_key) {
+      const i = timeline.findIndex((t) => t.key === progress.current_key);
+      if (i !== -1) {
+        startIndex = i;
+        startSeek = progress.position_seconds || 0;
+      }
     }
     index = startIndex;
-    loadCurrent(progress ? progress.position_seconds : 0);
+    loadCurrent(startSeek);
   }
 
   init();

@@ -22,6 +22,11 @@ ends. Built to be cast to a TV and driven from your phone.
 - **Resume**: your position (which reel + how many seconds into it) is saved
   continuously to a small SQLite file, so reopening the app - on your phone,
   on the TV, wherever - jumps right back to where you stopped.
+- **Messages**: text captions and any other links she sends (Threads posts,
+  articles, etc.) aren't dropped. A caption typed *alongside* a reel share
+  (in the same message) is shown right on that reel; anything else shows up
+  as an interstitial "cards" pane between the reels it was sent around, with
+  clickable links, instead of being scattered one-per-message.
 
 ### Why not fully automatic, no-export ingestion?
 
@@ -101,7 +106,9 @@ compose file, so it survives rebuilds/updates.
    automatically.
 5. Once Meta emails you the export, drop the `.zip` straight into the app
    via the **+** button (or unzip and drop the `message_1.json`,
-   `message_2.json`, ... files directly — both work).
+   `message_2.json`, ... files directly — both work). The **+** button's
+   modal also has a direct link to step 1 (Meta's DYI tool) so you don't
+   have to go hunting for it in the Instagram app each time.
 
 ## Using the player
 
@@ -115,6 +122,12 @@ compose file, so it survives rebuilds/updates.
 - Reels that fail to fetch (deleted, private, blocked) are skipped
   automatically after a few seconds, with a **Retry** button in case it was
   a transient block
+- **Jump to date** (📅 button): pulls up a date picker and jumps straight to
+  the nearest reel or message on/after that date — handy if your saved
+  position ever needs a manual correction
+- Message/link cards appear as their own full-screen pane between reels
+  (grouped so you're not tapping through one screen per text); tap
+  **Continue** or `↓` to move past them
 
 ### Casting to the TV
 
