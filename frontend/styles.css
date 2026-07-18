@@ -140,7 +140,7 @@ button:active { background: rgba(255,255,255,.28); }
   gap: 12px;
   overflow-y: auto;
   flex: 1;
-  padding-bottom: 12px;
+  padding-bottom: 150px; /* keeps the last card clear of the bottom control bar */
 }
 
 .note-card {
@@ -181,13 +181,12 @@ button:active { background: rgba(255,255,255,.28); }
 }
 .note-link:active { background: rgba(255,255,255,.28); }
 
-#continueBtn {
-  width: 100%;
-  font-size: 17px;
-  padding: 14px;
-  margin-top: 10px;
-  flex-shrink: 0;
+.thread-embed {
+  margin-top: 4px;
+  display: flex;
+  justify-content: center;
 }
+.thread-embed blockquote { margin: 0; }
 
 .overlay.center {
   top: 0;
@@ -199,6 +198,12 @@ button:active { background: rgba(255,255,255,.28); }
   text-align: center;
   gap: 14px;
   font-size: 16px;
+}
+
+#statusLink {
+  color: #6cf;
+  font-size: 14px;
+  text-decoration: none;
 }
 
 .hidden { display: none !important; }

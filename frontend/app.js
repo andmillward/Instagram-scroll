@@ -17,13 +17,12 @@
   const counter = document.getElementById("counter");
   const statusOverlay = document.getElementById("statusOverlay");
   const statusText = document.getElementById("statusText");
+  const statusLink = document.getElementById("statusLink");
   const retryBtn = document.getElementById("retryBtn");
   const stage = document.getElementById("stage");
-  const bottomBar = document.getElementById("bottomBar");
 
   const notesPane = document.getElementById("notesPane");
   const notesCards = document.getElementById("notesCards");
-  const continueBtn = document.getElementById("continueBtn");
 
   const importModal = document.getElementById("importModal");
   const dropZone = document.getElementById("dropZone");
@@ -39,6 +38,19 @@
 
   const SPEEDS = [1, 1.25, 1.5, 2];
 
+  // A notes pane plays back like a video: a virtual clock counts up to a
+  // duration (longer for bigger message groups), driving the same seek bar
+  // and play/pause/±10s/speed controls, and auto-advancing at the end.
+  const NOTE_BASE_SECONDS = 10;
+  const NOTE_PER_EXTRA_MESSAGE_SECONDS = 4;
+  const NOTE_MAX_SECONDS = 30;
+
+  // Long enough to actually notice and tap the "Open in Instagram" link
+  // before it auto-skips a reel that failed to fetch.
+  const FAILED_AUTO_SKIP_MS = 6000;
+
+  const THREADS_HOSTS = new Set(["threads.net", "threads.com"]);
+
   let timeline = [];
   let index = 0;
   let speedIdx = 0;
@@ -47,6 +59,8 @@
   let statusPollTimer = null;
   let autoSkipTimer = null;
   let lastSavedAt = 0;
+
+  const noteClock = { duration: 0, elapsed: 0, playing: false, intervalId: null };
 
   function fmtDate(ms) {
     if (!ms) return "";
@@ -94,9 +108,15 @@
     counter.textContent = `${index + 1} / ${timeline.length}`;
   }
 
-  function showStatus(text, showRetry) {
+  function showStatus(text, showRetry, linkUrl) {
     statusText.textContent = text;
     retryBtn.classList.toggle("hidden", !showRetry);
+    if (linkUrl) {
+      statusLink.href = linkUrl;
+      statusLink.classList.remove("hidden");
+    } else {
+      statusLink.classList.add("hidden");
+    }
     statusOverlay.classList.remove("hidden");
   }
 
@@ -104,12 +124,60 @@
     statusOverlay.classList.add("hidden");
   }
 
-  function setVideoControlsVisible(visible) {
-    bottomBar.classList.toggle("hidden", !visible);
+  // --- Threads embeds -----------------------------------------------------
+
+  function threadsUrl(url) {
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, "");
+      return THREADS_HOSTS.has(host) ? url : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function renderThreadsEmbed(url) {
+    const wrap = document.createElement("div");
+    wrap.className = "thread-embed";
+    const bq = document.createElement("blockquote");
+    bq.className = "text-post-media";
+    bq.setAttribute("data-text-post-permalink", url);
+    bq.setAttribute("data-text-post-version", "0");
+    bq.id = `ig-tp-${Math.random().toString(36).slice(2)}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = url;
+    bq.appendChild(a);
+    wrap.appendChild(bq);
+    return wrap;
+  }
+
+  function loadThreadsEmbedScript() {
+    // Meta's embed widget scans the DOM for unprocessed blockquotes when
+    // its script runs; adding a fresh <script> element re-triggers that
+    // scan for blockquotes inserted after the first load.
+    const s = document.createElement("script");
+    s.async = true;
+    s.src = "https://www.threads.net/embed.js";
+    s.onload = () => s.remove();
+    s.onerror = () => s.remove();
+    document.body.appendChild(s);
+  }
+
+  // --- Notes pane rendering ------------------------------------------------
+
+  function notesDuration(item) {
+    return Math.min(
+      NOTE_MAX_SECONDS,
+      NOTE_BASE_SECONDS + Math.max(0, item.messages.length - 1) * NOTE_PER_EXTRA_MESSAGE_SECONDS
+    );
   }
 
   function renderNotes(item) {
     notesCards.innerHTML = "";
+    let hasThreadsLink = false;
+
     for (const msg of item.messages) {
       const card = document.createElement("div");
       card.className = "note-card";
@@ -130,6 +198,12 @@
         const linksWrap = document.createElement("div");
         linksWrap.className = "note-links";
         for (const url of msg.links) {
+          const threads = threadsUrl(url);
+          if (threads) {
+            linksWrap.appendChild(renderThreadsEmbed(threads));
+            hasThreadsLink = true;
+            continue;
+          }
           const a = document.createElement("a");
           a.className = "note-link";
           a.href = url;
@@ -145,10 +219,62 @@
 
       notesCards.appendChild(card);
     }
+
+    if (hasThreadsLink) loadThreadsEmbedScript();
   }
+
+  // --- Notes virtual clock -------------------------------------------------
+
+  function stopNoteClock() {
+    if (noteClock.intervalId) {
+      clearInterval(noteClock.intervalId);
+      noteClock.intervalId = null;
+    }
+    noteClock.playing = false;
+  }
+
+  function updateNoteSeekUI() {
+    if (!isScrubbing && noteClock.duration) {
+      seek.value = String((noteClock.elapsed / noteClock.duration) * 1000);
+    }
+  }
+
+  function onNoteEnded() {
+    updateNoteSeekUI();
+    saveProgress(true);
+    if (autoAdvance) next();
+  }
+
+  function startNoteClock() {
+    stopNoteClock();
+    noteClock.playing = true;
+    playBtn.textContent = "⏸";
+    const tickMs = 200;
+    noteClock.intervalId = setInterval(() => {
+      noteClock.elapsed += (tickMs / 1000) * SPEEDS[speedIdx];
+      if (noteClock.elapsed >= noteClock.duration) {
+        noteClock.elapsed = noteClock.duration;
+        stopNoteClock();
+        playBtn.textContent = "▶";
+        onNoteEnded();
+        return;
+      }
+      updateNoteSeekUI();
+      saveProgress(false);
+    }, tickMs);
+  }
+
+  function pauseNoteClock() {
+    stopNoteClock();
+    playBtn.textContent = "▶";
+    saveProgress(true);
+  }
+
+  // --- Playback (shared between reels and notes) ---------------------------
 
   function loadCurrent(seekTo) {
     clearTimers();
+    stopNoteClock();
     const item = current();
     updateMeta();
 
@@ -156,7 +282,6 @@
       player.pause();
       player.removeAttribute("src");
       notesPane.classList.add("hidden");
-      setVideoControlsVisible(true);
       showStatus("You're all caught up. Import more with the + button.", false);
       return;
     }
@@ -165,15 +290,17 @@
       player.pause();
       player.removeAttribute("src");
       hideStatus();
-      setVideoControlsVisible(false);
       renderNotes(item);
       notesPane.classList.remove("hidden");
+      noteClock.duration = notesDuration(item);
+      noteClock.elapsed = Math.min(seekTo || 0, noteClock.duration);
+      updateNoteSeekUI();
+      startNoteClock();
       saveProgress(true);
       return;
     }
 
     notesPane.classList.add("hidden");
-    setVideoControlsVisible(true);
 
     if (item.status === "ready") {
       hideStatus();
@@ -189,9 +316,9 @@
     }
 
     if (item.status === "failed") {
-      showStatus(`Skipped: this reel couldn't be fetched (${item.error || "unavailable"}).`, true);
+      showStatus(`Skipped: this reel couldn't be fetched (${item.error || "unavailable"}).`, true, item.url);
       if (autoAdvance) {
-        autoSkipTimer = setTimeout(() => next(), 3000);
+        autoSkipTimer = setTimeout(() => next(), FAILED_AUTO_SKIP_MS);
       }
       return;
     }
@@ -225,7 +352,7 @@
     const now = Date.now();
     if (!immediate && now - lastSavedAt < 4000) return;
     lastSavedAt = now;
-    const position = item.kind === "reel" ? (player.currentTime || 0) : 0;
+    const position = item.kind === "reel" ? (player.currentTime || 0) : noteClock.elapsed;
     const body = JSON.stringify({ key: item.key, position_seconds: position });
     if (immediate && navigator.sendBeacon) {
       navigator.sendBeacon("/api/progress", new Blob([body], { type: "application/json" }));
@@ -245,9 +372,27 @@
   function prev() { goTo(index - 1, 0); }
 
   function togglePlay() {
-    if (current() && current().kind !== "reel") return;
-    if (player.paused) player.play().catch(() => {});
-    else player.pause();
+    const item = current();
+    if (!item) return;
+    if (item.kind === "reel") {
+      if (player.paused) player.play().catch(() => {});
+      else player.pause();
+    } else {
+      if (noteClock.playing) pauseNoteClock();
+      else startNoteClock();
+    }
+  }
+
+  function seekRelative(delta) {
+    const item = current();
+    if (!item) return;
+    if (item.kind === "reel") {
+      player.currentTime = Math.max(0, (player.currentTime || 0) + delta);
+    } else {
+      noteClock.elapsed = Math.max(0, Math.min(noteClock.duration, noteClock.elapsed + delta));
+      updateNoteSeekUI();
+      saveProgress(true);
+    }
   }
 
   function cycleSpeed() {
@@ -259,8 +404,12 @@
   function toggleAuto() {
     autoAdvance = !autoAdvance;
     autoBtn.textContent = `Auto: ${autoAdvance ? "On" : "Off"}`;
+    if (!autoAdvance && autoSkipTimer) {
+      clearTimeout(autoSkipTimer);
+      autoSkipTimer = null;
+    }
     if (autoAdvance && current() && current().kind === "reel" && current().status === "failed" && !autoSkipTimer) {
-      autoSkipTimer = setTimeout(() => next(), 1500);
+      autoSkipTimer = setTimeout(() => next(), FAILED_AUTO_SKIP_MS);
     }
   }
 
@@ -287,7 +436,13 @@
 
   seek.addEventListener("input", () => {
     isScrubbing = true;
-    if (player.duration) player.currentTime = (Number(seek.value) / 1000) * player.duration;
+    const item = current();
+    if (!item) return;
+    if (item.kind === "reel") {
+      if (player.duration) player.currentTime = (Number(seek.value) / 1000) * player.duration;
+    } else if (noteClock.duration) {
+      noteClock.elapsed = (Number(seek.value) / 1000) * noteClock.duration;
+    }
   });
   seek.addEventListener("change", () => {
     isScrubbing = false;
@@ -297,9 +452,8 @@
   playBtn.addEventListener("click", togglePlay);
   nextBtn.addEventListener("click", next);
   prevBtn.addEventListener("click", prev);
-  continueBtn.addEventListener("click", next);
-  back10Btn.addEventListener("click", () => { player.currentTime = Math.max(0, player.currentTime - 10); });
-  fwd10Btn.addEventListener("click", () => { player.currentTime = (player.currentTime || 0) + 10; });
+  back10Btn.addEventListener("click", () => seekRelative(-10));
+  fwd10Btn.addEventListener("click", () => seekRelative(10));
   speedBtn.addEventListener("click", cycleSpeed);
   autoBtn.addEventListener("click", toggleAuto);
   fsBtn.addEventListener("click", toggleFullscreen);
@@ -316,8 +470,8 @@
     if (!importModal.classList.contains("hidden") || !jumpModal.classList.contains("hidden")) return;
     switch (e.key) {
       case " ": e.preventDefault(); togglePlay(); break;
-      case "ArrowLeft": if (current() && current().kind === "reel") player.currentTime = Math.max(0, player.currentTime - 10); break;
-      case "ArrowRight": if (current() && current().kind === "reel") player.currentTime = (player.currentTime || 0) + 10; break;
+      case "ArrowLeft": seekRelative(-10); break;
+      case "ArrowRight": seekRelative(10); break;
       case "ArrowUp": prev(); break;
       case "ArrowDown": next(); break;
       case "f": case "F": toggleFullscreen(); break;
